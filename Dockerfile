@@ -1,31 +1,17 @@
-# Stage 1: Build Frontend
-FROM node:20-alpine AS frontend-build
-WORKDIR /app/frontend
-COPY frontend/package*.json ./
-RUN npm install
-COPY frontend/ ./
-RUN npm run build
+FROM node:18-alpine
 
-# Stage 2: Build Backend
-FROM python:3.11-slim
 WORKDIR /app
 
-# Install backend dependencies
-COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+ENV NODE_ENV=production
+ENV PORT=8080
 
-# Copy backend code
-COPY backend/ /app/backend/
+# Cache dependencies in a separate layer.
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
 
-# Copy built frontend from Stage 1 into the backend's static directory
-COPY --from=frontend-build /app/frontend/dist /app/backend/static
+# Copy only runtime source for a smaller image.
+COPY server.js ./
 
-# Set environment variables
-ENV PORT=8000
-ENV HOST=0.0.0.0
+EXPOSE 8080
 
-# Expose the port
-EXPOSE 8000
-
-# Run the FastAPI server
-CMD uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}
+CMD ["node", "server.js"]
