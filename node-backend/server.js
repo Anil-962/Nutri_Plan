@@ -84,6 +84,10 @@ BEHAVIOR IMPROVEMENTS:
 SMART SWAPS:
 ...`;
 
+        // Setup AbortController for API reliability (timeout after 30s)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
+
         // Call Gemini using native fetch
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`, {
             method: 'POST',
@@ -94,12 +98,21 @@ SMART SWAPS:
                 contents: [{
                     parts: [{ text: promptText }]
                 }]
-            })
+            }),
+            signal: controller.signal
         });
+        
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(`Gemini API error: ${JSON.stringify(errorData)}`);
+            let errorMsg = 'Unknown Gemini API error';
+            try {
+                const errorData = await response.json();
+                errorMsg = JSON.stringify(errorData);
+            } catch (e) {
+                errorMsg = await response.text();
+            }
+            throw new Error(`Gemini API error: ${errorMsg}`);
         }
 
         const data = await response.json();
@@ -112,6 +125,12 @@ SMART SWAPS:
 
     } catch (error) {
         console.error('Error generating plan:', error);
+        
+        // Handle timeout errors specifically
+        if (error.name === 'AbortError') {
+            return res.status(504).json({ success: false, error: 'Request to Gemini API timed out after 30 seconds' });
+        }
+        
         res.status(500).json({ success: false, error: 'Failed to generate diet plan' });
     }
 });
@@ -119,6 +138,12 @@ SMART SWAPS:
 // Health check endpoint
 app.get('/health', (req, res) => {
     res.json({ status: 'OK', timestamp: new Date() });
+});
+
+// Global Error Handling Middleware
+app.use((err, req, res, next) => {
+    console.error('Unhandled Error:', err.stack);
+    res.status(500).json({ success: false, error: 'Internal Server Error' });
 });
 
 app.listen(PORT, '0.0.0.0', () => {
