@@ -357,7 +357,7 @@
             
             errorMsgEl.style.display = 'none';
 
-            // Collect all form inputs
+            // 1. INPUT HANDLING: Collect all user data from the form
             const age = document.getElementById('age').value;
             const weight = document.getElementById('weight').value;
             const height = document.getElementById('height').value;
@@ -369,35 +369,25 @@
             const time = document.getElementById('time').value;
             const habit = document.getElementById('habit').value;
 
-            // Validation
+            // Simple client-side validation
             if (parseInt(budget) < 100) {
                 errorMsgEl.innerText = 'Budget is too low! Please set a minimum of ₹100.';
                 errorMsgEl.style.display = 'block';
                 return;
             }
 
-            // Show loading state
+            // UI Feedback: Indicate that generation has started
             btn.innerText = 'Generating your Indian diet plan...';
             btn.disabled = true;
 
             try {
-                // Send secure request to local Node.js backend
+                // 2. BACKEND COMMUNICATION: Send data to the local Node.js proxy
+                // We send raw metrics; the backend constructs the actual AI prompt
                 const response = await fetch('http://localhost:3000/generate-plan', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        age, 
-                        weight, 
-                        height, 
-                        goal, 
-                        diet: pref, 
-                        budget, 
-                        mood, 
-                        time, 
-                        habit,
-                        language
+                        age, weight, height, goal, diet: pref, budget, mood, time, habit, language
                     })
                 });
 
@@ -411,44 +401,30 @@
                     throw new Error(data.error || "Failed to generate plan");
                 }
 
-                // Extract text from the backend response
+                // 3. PARSING LOGIC: Extract and split the AI response into section cards
                 const generatedText = data.generatedPlan;
-
-                // Parse the response into sections
                 const sections = {
-                    calories: '',
-                    mealPlan: '',
-                    nutrition: '',
-                    cost: '',
-                    behavior: '',
-                    swaps: ''
+                    calories: '', mealPlan: '', nutrition: '', cost: '', behavior: '', swaps: ''
                 };
                 
                 let currentSection = '';
                 const lines = generatedText.split('\n');
                 
                 for (let line of lines) {
-                    // Remove markdown bolding (**) to reliably match headings
-                    const cleanLine = line.trim().replace(/\*/g, ''); 
+                    const cleanLine = line.trim().replace(/\*/g, ''); // Clean markdown bolding
                     
-                    if (cleanLine.startsWith('CALORIES')) {
-                        currentSection = 'calories';
-                    } else if (cleanLine.startsWith('SMART MEAL PLAN')) {
-                        currentSection = 'mealPlan';
-                    } else if (cleanLine.startsWith('TOTAL NUTRITION')) {
-                        currentSection = 'nutrition';
-                    } else if (cleanLine.startsWith('TOTAL COST')) {
-                        currentSection = 'cost';
-                    } else if (cleanLine.startsWith('BEHAVIOR IMPROVEMENTS')) {
-                        currentSection = 'behavior';
-                    } else if (cleanLine.startsWith('SMART SWAPS')) {
-                        currentSection = 'swaps';
-                    } else if (currentSection) {
+                    if (cleanLine.startsWith('CALORIES')) currentSection = 'calories';
+                    else if (cleanLine.startsWith('SMART MEAL PLAN')) currentSection = 'mealPlan';
+                    else if (cleanLine.startsWith('TOTAL NUTRITION')) currentSection = 'nutrition';
+                    else if (cleanLine.startsWith('TOTAL COST')) currentSection = 'cost';
+                    else if (cleanLine.startsWith('BEHAVIOR IMPROVEMENTS')) currentSection = 'behavior';
+                    else if (cleanLine.startsWith('SMART SWAPS')) currentSection = 'swaps';
+                    else if (currentSection) {
                         sections[currentSection] += line.replace(/\*/g, '') + '\n';
                     }
                 }
 
-                // Update DOM elements
+                // 4. UI UPDATE: Inject parsed sections into the DOM
                 document.getElementById('out-calories').innerText = sections.calories.trim() || 'N/A';
                 document.getElementById('out-mealplan').innerText = sections.mealPlan.trim() || 'N/A';
                 document.getElementById('out-macros').innerText = sections.nutrition.trim() || 'N/A';
@@ -456,16 +432,13 @@
                 document.getElementById('out-swaps').innerText = sections.swaps.trim() || 'N/A';
                 document.getElementById('out-cost').innerText = sections.cost.trim() || 'N/A';
 
-                // Show output section
+                // Reveal results with smooth animation
                 const outSec = document.getElementById('output-section');
                 outSec.style.display = 'block';
-                
-                // Trigger pulse highlight animation
                 outSec.classList.remove('highlight-pulse');
-                void outSec.offsetWidth; // trigger reflow
+                void outSec.offsetWidth; 
                 outSec.classList.add('highlight-pulse');
 
-                // Scroll to output section
                 setTimeout(() => {
                     outSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }, 100);
@@ -476,7 +449,7 @@
                 errorMsgEl.style.display = 'block';
                 document.getElementById('output-section').style.display = 'none';
             } finally {
-                // Reset button state
+                // Restore button state regardless of success or failure
                 btn.innerText = originalText;
                 btn.disabled = false;
             }

@@ -1,75 +1,90 @@
 import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+
+// Load environment variables from .env file
+dotenv.config();
+
+// Critical startup check: Ensure Gemini API key is available
+const API_KEY = process.env.GEMINI_API_KEY;
+if (!API_KEY) {
+    console.error('FATAL ERROR: GEMINI_API_KEY environment variable is not set.');
+    process.exit(1);
+}
 
 const app = express();
-const PORT = process.env.PORT || 8080;
-const HOST = '0.0.0.0';
+const PORT = process.env.PORT || 3000;
 
+// Enable Cross-Origin Resource Sharing (CORS) and JSON body parsing
+app.use(cors());
 app.use(express.json());
 
-function logError(context, error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error(`[${context}] ${message}`);
-}
-
-function sendError(res, status = 500, message = 'Internal server error') {
-    return res.status(status).json({ success: false, error: message });
-}
-
-app.get('/health', (_req, res) => {
+/**
+ * POST /generate-plan
+ * Receives user nutrition profile and returns a structured AI-generated diet plan.
+ */
+app.post('/generate-plan', async (req, res) => {
     try {
-        return res.status(200).json({ status: 'ok' });
-    } catch (error) {
-        logError('GET /health', error);
-        return sendError(res);
-    }
-});
+        // 1. INPUT HANDLING: Extract user metrics and lifestyle context from request body
+        const { age, weight, height, goal, diet, budget, mood, time, habit, language } = req.body;
 
-app.get('/', (_req, res) => {
-    try {
-        return res.status(200).json({ message: 'Service is running' });
-    } catch (error) {
-        logError('GET /', error);
-        return sendError(res);
-    }
-});
-
-app.post('/generate-plan', (req, res) => {
-    try {
-        const requiredFields = ['age', 'weight', 'height', 'goal', 'diet', 'budget', 'language'];
-        const missingFields = requiredFields.filter((field) => {
-            const value = req.body?.[field];
-            return value === undefined || value === null || (typeof value === 'string' && value.trim() === '');
-        });
-
-        if (missingFields.length > 0) {
-            return sendError(res, 400, `Missing required fields: ${missingFields.join(', ')}`);
+        // Validation: Ensure all core fields are provided
+        if (!age || !weight || !height || !goal || !diet || !budget || !language) {
+            return res.status(400).json({ success: false, error: 'Missing required fields' });
         }
 
-        const numericFields = ['age', 'weight', 'budget'];
-        const invalidNumericFields = numericFields.filter((field) => {
-            const num = Number(req.body[field]);
-            return !Number.isFinite(num) || num <= 0;
+        // 2. PROMPT CONSTRUCTION: Build the structured prompt for Gemini
+        const promptText = `You are an intelligent Indian nutrition assistant.
+Respond in ${language}. Keep it natural and simple.
+
+User Inputs:
+- Age: ${age}, Weight: ${weight}, Height: ${height}
+- Goal: ${goal}, Diet: ${diet}, Budget: ₹${budget}
+- Mood: ${mood}, Time: ${time}m, Habit: ${habit}
+
+Output format:
+CALORIES: ...
+SMART MEAL PLAN: ...
+TOTAL NUTRITION: ...
+TOTAL COST: ...
+BEHAVIOR IMPROVEMENTS: ...
+SMART SWAPS: ...`;
+
+        // 3. GEMINI API CALL: Communicate with Google's Generative AI
+        // Using stable v1 endpoint for reliability
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${API_KEY}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: promptText }] }]
+            })
         });
 
-        if (invalidNumericFields.length > 0) {
-            return sendError(res, 400, `Invalid numeric values for: ${invalidNumericFields.join(', ')}`);
+        // 4. RESPONSE HANDLING: Parse and validate AI output
+        const data = await response.json();
+        
+        // Handle API-level errors (invalid keys, quota exceeded, etc.)
+        if (!response.ok) {
+            throw new Error(data.error?.message || 'Gemini API Error');
         }
 
-        return res.status(200).json({
+        // Successfully return the generated text to the frontend
+        res.json({
             success: true,
-            generatedPlan: 'Minimal backend is running. Plan generation is temporarily disabled.'
+            generatedPlan: data.candidates[0].content.parts[0].text
         });
+
     } catch (error) {
-        logError('POST /generate-plan', error);
-        return sendError(res);
+        // Detailed error logging for backend debugging
+        console.error('Plan Generation Error:', error.message);
+        res.status(500).json({ success: false, error: 'Failed to generate diet plan' });
     }
 });
 
-app.use((error, _req, res, _next) => {
-    logError('Express middleware', error);
-    return sendError(res);
-});
+// Basic health check for cloud platform monitoring
+app.get('/health', (req, res) => res.json({ status: 'OK' }));
 
-app.listen(PORT, HOST, () => {
-    console.log(`Server listening on http://${HOST}:${PORT}`);
+// Start the server on all interfaces (0.0.0.0) for Docker compatibility
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Server listening at http://0.0.0.0:${PORT}`);
 });
